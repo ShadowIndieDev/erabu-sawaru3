@@ -54,7 +54,10 @@
     }
 
     // 読み上げ：Safariは、触れた操作の中ですぐに話し始めないと音が出ないことがあるので、待たずに呼ぶ。
-    let speaking = 0;
+    // 0.1.3：指を触れた瞬間（pointerdown）は、Safariでは「ユーザーの操作」に数えられず、
+    // まだ一度も音を出していないページでは読み上げが黙って捨てられる。指を離した時
+    // （pointerup・touchend・click）は数えられるので、まだ音が出ていなければそこでもう一度始める。
+    let speaking = 0, last = null, unlocked = false;
     function speak(text, rate) {
       const synth = root.speechSynthesis;
       if (!synth || !root.SpeechSynthesisUtterance) { emit({type: 'speech', state: 'error', message: 'このブラウザでは読み上げを使えません。'}); return; }
@@ -64,10 +67,20 @@
       const v = synth.getVoices().find(x => /^ja(-|_|$)/i.test(x.lang)); if (v) u.voice = v;
       u.rate = Math.max(0.5, Math.min(1.3, Number(rate) || 0.9));
       const mine = ++speaking;
+      const entry = {text, rate, at: Date.now(), started: false, mine};
+      last = entry;
+      u.onstart = () => { entry.started = true; unlocked = true; };
       u.onend = () => { if (mine === speaking) emit({type: 'speech', state: 'ended'}); };
       synth.speak(u);
     }
-    function stopSpeech() { speaking++; if (root.speechSynthesis) root.speechSynthesis.cancel(); }
+    function stopSpeech() { speaking++; last = null; if (root.speechSynthesis) root.speechSynthesis.cancel(); }
+    function retryUnheard() {
+      const synth = root.speechSynthesis;
+      if (unlocked || !synth || !last || last.started || last.mine !== speaking) return;
+      if (Date.now() - last.at > 3000 || synth.speaking || synth.pending) return;
+      speak(last.text, last.rate);
+    }
+    for (const type of ['pointerup', 'touchend', 'click']) document.addEventListener(type, retryUnheard, true);
 
     // 画面を暗くしない（Screen Wake Lock。使えないブラウザでは何もしない）。
     let wantAwake = false, lock = null;
