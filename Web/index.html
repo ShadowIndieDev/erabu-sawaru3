@@ -5,15 +5,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="さわる2択">
+<meta name="apple-mobile-web-app-title" content="さわる2・3択">
 <meta name="theme-color" content="#e4e9df">
-<meta name="description" content="左右どちらかの半分に触れた瞬間に選べる、2択の意思表出アプリ。">
+<meta name="description" content="左右（または左・真ん中・右）のどこかに触れた瞬間に選べる、2択・3択の意思表出アプリ。">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; manifest-src 'self'; connect-src 'none'">
-<title>えらぶの窓 さわる2択</title>
+<title>えらぶの窓 さわる2・3択</title>
 <style>/*@STYLE@*/</style>
 </head>
 <body>
@@ -35,13 +35,9 @@
       <button id="settings-hold" class="band-button hold" type="button" aria-label="設定（長押しで開く）"><span class="hold-fill" aria-hidden="true"></span><span class="hold-text">設定<small>長押し</small></span></button>
     </div>
   </header>
-  <main id="stage" class="stage" aria-label="左右どちらかに触れて選ぶ">
+  <main id="stage" class="stage" aria-label="触れて選ぶ">
     <h1 id="question" class="question"></h1>
-    <div class="halves">
-      <section class="half" id="half-left" data-side="left"><div class="card"><div class="picture"></div><div class="label"></div></div></section>
-      <div class="dead-zone" aria-hidden="true"></div>
-      <section class="half" id="half-right" data-side="right"><div class="card"><div class="picture"></div><div class="label"></div></div></section>
-    </div>
+    <div class="halves"></div>
     <div id="paused-cover" class="paused-cover" hidden><p>おやすみ中</p><small>上の「再開する」で もどります</small></div>
   </main>
   <p id="notice" class="notice" role="status" aria-live="polite"></p>
@@ -63,9 +59,9 @@
     </section>
     <section class="block">
       <h3>触れ方</h3>
-      <p class="help">上の帯の下なら、左右どちらの半分に触れても、触れた瞬間にその側を選びます。撫でる・押しつける・指を何本も置く、のどれでも選べます。決めるのは最初に触れた位置だけです。</p>
-      <label class="row">真ん中の反応しない幅<select id="pref-dead"><option value="none">なし（標準）</option><option value="narrow">細い</option><option value="wide">広い</option></select></label>
-      <p class="help">真ん中あたりに手が置かれやすいときに使います。幅の中に触れても選びません。</p>
+      <p class="help">上の帯の下なら、どこに触れても、触れた瞬間にその側を選びます。2択は画面を左右の半分に、3択は左・真ん中・右の3つに分けます。撫でる・押しつける・指を何本も置く、のどれでも選べます。決めるのは最初に触れた位置だけです。</p>
+      <label class="row">境目の反応しない幅<select id="pref-dead"><option value="none">なし（標準）</option><option value="narrow">細い</option><option value="wide">広い</option></select></label>
+      <p class="help">境目（2択は真ん中、3択は2か所）に手が置かれやすいときに使います。幅の中に触れても選びません。</p>
       <label class="row">選んだ後に、また触れたとき<select id="pref-after"><option value="none">何もしない（標準）</option><option value="repeat">選んだ言葉をもう一度読む</option></select></label>
     </section>
     <section class="block">
@@ -88,7 +84,7 @@
       <summary>保存と情報について</summary>
       <p class="help" data-for="app">セット・写真・設定は、このiPadのこのアプリの中だけに保存します。送信はしません。アプリを削除すると消えるので、大切なセットは「書き出す」で保管してください。書き出したファイルは、元の「えらぶの窓」でも読めます。</p>
       <p class="help" data-for="web">セット・写真・設定は、この端末のこのブラウザの中だけに保存します。送信はしません。利用の集計もしていません。ブラウザの履歴やWebサイトのデータを消すと消え、ホーム画面に追加したものとSafariで開いたものでも別になります。大切なセットは「書き出す」で保管してください。書き出したファイルは、元の「えらぶの窓」でも読めます。</p>
-      <p class="help">元の「えらぶの窓」の3択・4択の質問は、読み込むときに読み飛ばします（2択の質問だけを使います）。</p>
+      <p class="help">元の「えらぶの窓」の4択の質問は、読み込むときに読み飛ばします（2択・3択の質問を使います）。「さわる2択」のセットも読み込めます。</p>
       <p class="help">選んだ内容は、ご本人の表情・動き・反応と合わせて確かめてください。見本の絵は生成したイラストで、写真に差し替えられます。GPL-3.0-or-later。</p>
       <p class="help" id="version-text"></p>
     </details>
@@ -104,16 +100,20 @@
       <div class="buttons"><button id="add-question" type="button">＋ 質問を追加</button><button id="move-up" type="button">前へ移す</button><button id="move-down" type="button">後ろへ移す</button><button id="delete-question" type="button">この質問を削除</button></div>
     </section>
     <section class="block">
+      <div class="row">選択肢の数
+        <div class="segmented" id="choice-count" role="group" aria-label="選択肢の数"><button type="button" data-count="2">2つ（左・右）</button><button type="button" data-count="3">3つ（左・真ん中・右）</button></div>
+      </div>
       <label class="row">問いかけ<input id="edit-question" type="text" maxlength="80" autocomplete="off"></label>
-      <div class="option-editors">
+      <div class="option-editors" id="option-editors">
         <div class="option-editor" data-index="0"><h3>左</h3></div>
         <div class="option-editor" data-index="1"><h3>右</h3></div>
+        <div class="option-editor" data-index="2" hidden><h3>右</h3></div>
       </div>
     </section>
     <p id="editor-error" class="error" role="alert"></p>
     <section class="block">
       <div class="buttons"><button id="export-set" type="button">このセットを書き出す</button><button id="delete-set" class="danger" type="button">このセットを削除</button></div>
-      <p class="help">1つのセットに質問は50まで。書き出したファイルには写真と言葉が入ります。</p>
+      <p class="help">選択肢の数（2つ・3つ）は質問ごとに選べます。1つのセットに質問は50まで。書き出したファイルには写真と言葉が入ります。</p>
       <p class="help">写真はJPG・PNG・WebP・GIF。動くGIFは動いたまま表示します（1枚5MBまで、縮めずに保存）。点滅の激しいGIFは避けてください。GIFの絵は、元の「えらぶの窓」では読めません。</p>
     </section>
   </div>

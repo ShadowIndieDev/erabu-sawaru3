@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// えらぶの窓 さわる2択：画面。
+// えらぶの窓 さわる2・3択：画面。
 (function () {
   'use strict';
   const L = window.SawaruLogic, host = window.SawaruHost;
@@ -73,22 +73,39 @@
   });
 
   // ---------- 遊ぶ画面 ----------
-  const halves = {left: $('half-left'), right: $('half-right')};
+  // 区切り（2つか3つ）は、質問の選択肢の数に合わせて作り直す。
+  const halvesBox = document.querySelector('.halves');
+  let slots = [];
+  function buildSlots(count) {
+    if (slots.length === count) return;
+    const parts = [];
+    slots = [];
+    for (let i = 0; i < count; i++) {
+      if (i) { const dz = document.createElement('div'); dz.className = 'dead-zone'; dz.setAttribute('aria-hidden', 'true'); parts.push(dz); }
+      const el = document.createElement('section'); el.className = 'half'; el.dataset.slot = String(i);
+      el.innerHTML = '<div class="card"><div class="picture"></div><div class="label"></div></div>';
+      slots.push(el); parts.push(el);
+    }
+    halvesBox.replaceChildren(...parts);
+    halvesBox.classList.toggle('three', count === 3);
+  }
   function render() {
     const q = session.question;
     $('question').textContent = q.question;
     $('set-name').textContent = session.set.name;
     $('question-count').textContent = `質問 ${session.index + 1} / ${session.count}`;
-    for (const side of ['left', 'right']) {
-      const el = halves[side], opt = session.optionAt(side);
+    buildSlots(session.size);
+    $('stage').setAttribute('aria-label', session.size === 3 ? '左・真ん中・右のどれかに触れて選ぶ' : '左右どちらかに触れて選ぶ');
+    slots.forEach((el, i) => {
+      const opt = session.optionAt(i);
       paint(el.querySelector('.picture'), opt.image);
       el.querySelector('.label').textContent = opt.label;
-      el.classList.toggle('chosen', session.chosenSide === side);
-      el.classList.toggle('faded', !!session.selected && session.chosenSide !== side);
-    }
+      el.classList.toggle('chosen', session.chosenSlot === i);
+      el.classList.toggle('faded', !!session.selected && session.chosenSlot !== i);
+    });
     $('app').classList.toggle('no-labels', !prefs.labels);
-    const dz = $('app').querySelector('.dead-zone'), ratio = L.DEAD_ZONES[prefs.deadZone] || 0;
-    dz.style.flexBasis = (ratio * 100) + '%'; dz.classList.toggle('wide', ratio > 0);
+    const ratio = L.DEAD_ZONES[prefs.deadZone] || 0;
+    for (const dz of halvesBox.querySelectorAll('.dead-zone')) { dz.style.flexBasis = (ratio * 100) + '%'; dz.classList.toggle('wide', ratio > 0); }
     $('redo').disabled = !session.selected;
     $('prev').disabled = session.index === 0;
     $('next').disabled = session.index >= session.count - 1;
@@ -113,9 +130,9 @@
       }
       return;
     }
-    const side = L.sideAt(e.clientX - box.left, box.width, prefs.deadZone);
-    if (!side) return;
-    const option = session.choose(side);
+    const slot = L.slotAt(e.clientX - box.left, box.width, session.size, prefs.deadZone);
+    if (slot === null) return;
+    const option = session.choose(slot);
     if (!option) return;
     lastRepeatAt = e.timeStamp;
     ripple(e.clientX, e.clientY);
@@ -183,14 +200,14 @@
     try {
       if (file.size > L.LIMITS.fileBytes) throw new Error('セットのファイルは50MB以下にしてください。');
       const result = L.importSets(await file.text());
-      if (!result.sets.length) throw new Error('2択の質問がないため、追加できるセットがありませんでした。');
+      if (!result.sets.length) throw new Error('2択・3択の質問がないため、追加できるセットがありませんでした。');
       if (sets.length + result.sets.length > L.LIMITS.sets) throw new Error(`セットは${L.LIMITS.sets}個までです。使わないセットを削除してから読み込んでください。`);
       sets.push(...result.sets);
       await persist();
       fillSetSelects();
       const count = result.sets.reduce((n, s) => n + s.questions.length, 0);
       let text = `${result.sets.length}セット（質問 ${count}）を追加しました。「使うセット」から選べます。`;
-      if (result.skippedQuestions) text += ` 3択・4択の質問 ${result.skippedQuestions} は読み飛ばしました。`;
+      if (result.skippedQuestions) text += ` 4択などの質問 ${result.skippedQuestions} は読み飛ばしました。`;
       status.textContent = text;
     } catch (err) { sets = before; status.textContent = err.message; }
   });
@@ -202,11 +219,28 @@
 
   // ---------- 編集 ----------
   let draft = null, draftIndex = 0, draftIsNew = false, draftDirty = false;
-  function blankQuestion() {
-    return {id: L.makeId(), question: 'どちらが いい？', options: [
-      {id: L.makeId(), label: 'りんご', speech: '', image: {kind: 'builtin', id: 'apple'}},
-      {id: L.makeId(), label: 'バナナ', speech: '', image: {kind: 'builtin', id: 'banana'}}]};
+  // 3択から2択に戻したときに外した真ん中の選択肢。編集を閉じるまで覚えておき、3択に戻すと元に戻る。
+  const removedMiddle = new Map();
+  const ASK_TWO = 'どちらが いい？', ASK_THREE = 'どれが いい？';
+  const builtinOption = id => { const a = L.ASSETS.find(x => x.id === id); return {id: L.makeId(), label: a.label, speech: '', image: {kind: 'builtin', id}}; };
+  function blankQuestion(count = 2) {
+    return {id: L.makeId(), question: count === 3 ? ASK_THREE : ASK_TWO, options: ['apple', 'banana', 'rice'].slice(0, count).map(builtinOption)};
   }
+  // 選択肢の数を変える。3つにすると真ん中に1つ足し、2つにすると真ん中を外す（左と右はそのまま）。
+  function setChoiceCount(count) {
+    const q = draft.questions[draftIndex];
+    if (q.options.length === count) return;
+    if (count === 3) {
+      const used = new Set(q.options.filter(o => o.image.kind === 'builtin').map(o => o.image.id));
+      q.options.splice(1, 0, removedMiddle.get(q.id) || builtinOption((L.ASSETS.find(a => !used.has(a.id)) || L.ASSETS[2]).id));
+      if (q.question === ASK_TWO) q.question = ASK_THREE;
+    } else {
+      removedMiddle.set(q.id, q.options.splice(1, 1)[0]);
+      if (q.question === ASK_THREE) q.question = ASK_TWO;
+    }
+    draftDirty = true; $('editor-error').textContent = ''; renderEditor();
+  }
+  for (const b of document.querySelectorAll('#choice-count button')) b.addEventListener('click', () => setChoiceCount(Number(b.dataset.count)));
   const optionEditors = [...document.querySelectorAll('.option-editor')];
   optionEditors.forEach((box, index) => {
     box.append($('option-template').content.cloneNode(true));
@@ -264,7 +298,7 @@
     return data;
   }
   function openEditor(set, isNew) {
-    draft = JSON.parse(JSON.stringify(set)); draftIsNew = isNew; draftDirty = isNew;
+    draft = JSON.parse(JSON.stringify(set)); draftIsNew = isNew; draftDirty = isNew; removedMiddle.clear();
     draftIndex = isNew ? 0 : Math.max(0, draft.questions.findIndex(q => q.id === session.question.id));
     $('editor-title').textContent = isNew ? '新しいセット' : 'セットを編集';
     $('delete-set').hidden = isNew;
@@ -286,8 +320,16 @@
     const q = draft.questions[draftIndex];
     renderTabs();
     $('edit-question').value = q.question;
+    const count = q.options.length;
+    for (const b of document.querySelectorAll('#choice-count button')) {
+      const on = Number(b.dataset.count) === count; b.classList.toggle('current', on); b.setAttribute('aria-pressed', String(on));
+    }
+    $('option-editors').classList.toggle('three', count === 3);
     optionEditors.forEach((box, i) => {
       const o = q.options[i];
+      box.hidden = !o;
+      if (!o) return;
+      box.querySelector('h3').textContent = L.slotName(count, i);
       box.querySelector('.opt-label').value = o.label;
       box.querySelector('.opt-speech').value = o.speech || '';
       paint(box.querySelector('.opt-preview .picture'), o.image);
@@ -303,7 +345,7 @@
   }
   $('edit-name').addEventListener('input', e => { draft.name = e.target.value; draftDirty = true; });
   $('edit-question').addEventListener('input', e => { draft.questions[draftIndex].question = e.target.value; draftDirty = true; renderTabs(); });
-  $('add-question').addEventListener('click', () => { draft.questions.splice(draftIndex + 1, 0, blankQuestion()); draftIndex++; draftDirty = true; renderEditor(); });
+  $('add-question').addEventListener('click', () => { draft.questions.splice(draftIndex + 1, 0, blankQuestion(draft.questions[draftIndex].options.length)); draftIndex++; draftDirty = true; renderEditor(); });
   $('delete-question').addEventListener('click', () => {
     if (draft.questions.length <= 1 || !confirm(`質問${draftIndex + 1}を削除しますか？`)) return;
     draft.questions.splice(draftIndex, 1); draftIndex = Math.min(draftIndex, draft.questions.length - 1); draftDirty = true; renderEditor();

@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const L = require('../Web/logic.js');
 
 const pic = id => ({kind: 'builtin', id});
+const q3 = (id, a = 'apple', b = 'banana', c = 'rice') => ({id, question: 'どれ？', options: [{id: id + 'a', label: 'A', image: pic(a)}, {id: id + 'b', label: 'B', image: pic(b)}, {id: id + 'c', label: 'C', image: pic(c)}]});
 const q2 = (id, a = 'apple', b = 'banana') => ({id, question: 'どちら？', options: [{id: id + 'a', label: 'A', image: pic(a)}, {id: id + 'b', label: 'B', image: pic(b)}]});
 
 test('左右の判定：真ん中で分け、反応しない幅の中は選ばない', () => {
@@ -21,6 +22,38 @@ test('左右の判定：真ん中で分け、反応しない幅の中は選ば�
   assert.equal(L.sideAt(430, 1000, 'wide'), null);
   assert.equal(L.sideAt(NaN, 1000), null);
   assert.equal(L.sideAt(10, 0), null);
+});
+
+test('3択の区切り：3つに分け、2つの境目の反応しない幅の中は選ばない', () => {
+  assert.equal(L.slotAt(10, 900, 3), 0);
+  assert.equal(L.slotAt(299, 900, 3), 0);
+  assert.equal(L.slotAt(300, 900, 3), 1);
+  assert.equal(L.slotAt(599, 900, 3), 1);
+  assert.equal(L.slotAt(600, 900, 3), 2);
+  assert.equal(L.slotAt(-20, 900, 3), 0, '左の余白は左');
+  assert.equal(L.slotAt(950, 900, 3), 2, '右の余白は右');
+  assert.equal(L.slotAt(300, 900, 3, 'narrow'), null);
+  assert.equal(L.slotAt(600, 900, 3, 'wide'), null);
+  assert.equal(L.slotAt(450, 900, 3, 'wide'), 1, '真ん中の区切りの中ほどは選べる');
+  assert.equal(L.slotAt(450, 900, 2, 'narrow'), null, '2択は真ん中が境目');
+  assert.equal(L.slotAt(10, 900, 4), null);
+});
+
+test('3択：選んで保ち、入れ替えは左と右だけを替える', () => {
+  const s = new L.ChoiceSession(L.normalizeSet({id: 's', name: 'S', questions: [q3('q1'), q2('q2')]}));
+  assert.equal(s.size, 3);
+  assert.equal(s.optionAt(1).id, 'q1b');
+  assert.equal(s.choose(1).id, 'q1b');
+  assert.equal(s.chosenSlot, 1);
+  assert.equal(s.chosenSide, 'middle');
+  assert.equal(s.choose(0), null);
+  s.swap();
+  assert.equal(s.optionAt('left').id, 'q1c');
+  assert.equal(s.optionAt(1).id, 'q1b');
+  assert.equal(s.choose('right').id, 'q1a');
+  assert.equal(s.chosenSlot, 2);
+  s.go(1);
+  assert.equal(s.size, 2);
 });
 
 test('選んだら保つ：えらびなおすまで、もう選ばない', () => {
@@ -45,14 +78,17 @@ test('最初のセットは2択だけで、正しい形', () => {
   for (const set of sets) for (const q of set.questions) assert.equal(q.options.length, 2);
 });
 
-test('2択でない質問は作れない', () => {
+test('2択か3択だけ作れる', () => {
   assert.throws(() => L.normalizeQuestion({id: 'q', question: 'x', options: [{id: 'a', label: 'a', image: pic('apple')}]}));
-  assert.throws(() => L.normalizeQuestion({id: 'q', question: 'x', options: [1, 2, 3].map(i => ({id: 'o' + i, label: 'a', image: pic('apple')}))}));
+  assert.equal(L.normalizeQuestion(q3('q')).options.length, 3);
+  assert.throws(() => L.normalizeQuestion({id: 'q', question: 'x', options: [1, 2, 3, 4].map(i => ({id: 'o' + i, label: 'a', image: pic('apple')}))}));
+  assert.throws(() => L.normalizeQuestion({...q3('q'), options: [...q3('q').options.slice(0, 2), {...q3('q').options[0]}]}), /重複/);
+  assert.throws(() => L.normalizeQuestion({...q3('q'), options: [q3('q').options[0], {id: 'z', label: ' ', image: pic('apple')}, q3('q').options[2]]}), /真ん中の言葉/);
   assert.throws(() => L.normalizeQuestion({...q2('q'), question: ' '}), /問いかけ/);
   assert.throws(() => L.normalizeQuestion({...q2('q'), options: [{id: 'a', label: 'A', image: pic('nothing')}, {id: 'b', label: 'B', image: pic('apple')}]}), /絵か写真/);
 });
 
-test('元のアプリのファイル：3択・4択は読み飛ばし、2択は新しいIDで読む', () => {
+test('元のアプリのファイル：4択は読み飛ばし、2択・3択は新しいIDで読む', () => {
   let n = 0;
   const id = () => 'new-' + (++n);
   const file = JSON.stringify({format: 'erabu-choice-sets', version: 2, sets: [
@@ -61,8 +97,9 @@ test('元のアプリのファイル：3択・4択は読み飛ばし、2択は�
   ]});
   const r = L.importSets(file, id);
   assert.equal(r.sets.length, 1);
-  assert.equal(r.sets[0].questions.length, 2);
-  assert.equal(r.skippedQuestions, 2);
+  assert.equal(r.sets[0].questions.length, 3);
+  assert.equal(r.sets[0].questions[1].options.length, 3);
+  assert.equal(r.skippedQuestions, 1);
   assert.equal(r.skippedSets, 1);
   assert.ok(r.sets[0].id.startsWith('new-'));
   assert.ok(r.sets[0].questions.every(q => q.id.startsWith('new-') && q.options.every(o => o.id.startsWith('new-'))));
@@ -90,6 +127,13 @@ test('書き出しは元のアプリと同じ形式で、読み戻せる', () =>
   assert.equal(back.sets[0].name, set.name);
   assert.equal(back.sets[0].questions.length, set.questions.length);
   assert.equal(back.skippedQuestions, 0);
+});
+
+test('3択のセットも書き出して読み戻せる', () => {
+  const set = L.normalizeSet({id: 's', name: '3つ', questions: [q3('a'), q2('b')]});
+  const back = L.importSets(L.exportSet(set)).sets[0];
+  assert.deepEqual(back.questions.map(q => q.options.length), [3, 2]);
+  assert.equal(back.questions[0].options[2].label, 'C');
 });
 
 test('写真は data:image だけを受け付ける', () => {

@@ -22,7 +22,7 @@
     // ---- Web版（SafariなどのブラウザでURLを開いたとき） ----
     // 保存はIndexedDB（写真が入っても収まるように）。使えないときだけlocalStorage。
     // 読み込みに失敗したときは「まだ何も無い」と見なさず止める（最初のセットで上書きしないため）。
-    const DB = 'erabu-sawaru', STORE = 'docs', KEY = 'snapshot', LS_KEY = 'erabu-sawaru-web-v1';
+    const DB = 'erabu-sawaru3', STORE = 'docs', KEY = 'snapshot', LS_KEY = 'erabu-sawaru3-web-v1';
     let dbPromise = null;
     const openDb = () => {
       if (!dbPromise) dbPromise = new Promise((resolve, reject) => {

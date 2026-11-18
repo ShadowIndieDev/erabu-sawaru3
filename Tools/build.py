@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""えらぶの窓 さわる2択：1つのHTMLにまとめ、Swift Playgrounds用の .swiftpm と ZIP を作る。
+"""えらぶの窓 さわる2・3択：1つのHTMLにまとめ、Swift Playgrounds用の .swiftpm と ZIP を作る。
 
 使い方：python Tools/build.py
 出力：
   docs/  … Web版（GitHub Pagesで公開する一式。iPadのアプリと同じ画面）
-  build/ErabuSawaru-v<版>.swiftpm/                 … Swift Playgroundsで開くもの
-  build/ErabuSawaru-playground-v<版>.zip            … iPadへ渡すZIP
+  build/ErabuSawaru3-v<版>.swiftpm/                 … Swift Playgroundsで開くもの
+  build/ErabuSawaru3-playground-v<版>.zip            … iPadへ渡すZIP
 """
 import base64, hashlib, json, pathlib, re, shutil, sys, zipfile
 
@@ -48,14 +48,14 @@ def main():
     (site / '.nojekyll').write_text('', encoding='utf-8')
     for size in (180, 192, 512):
         shutil.copyfile(WEB / 'assets' / f'icon-{size}.png', site / f'icon-{size}.png')
-    manifest = {'name': 'えらぶの窓 さわる2択', 'short_name': 'さわる2択', 'lang': 'ja', 'start_url': './', 'scope': './',
+    manifest = {'name': 'えらぶの窓 さわる2・3択', 'short_name': 'さわる2・3択', 'lang': 'ja', 'start_url': './', 'scope': './',
                 'display': 'fullscreen', 'orientation': 'landscape', 'background_color': '#f2f4ee', 'theme_color': '#e4e9df',
                 'icons': [{'src': f'icon-{s}.png', 'sizes': f'{s}x{s}', 'type': 'image/png'} for s in (192, 512)]}
     (site / 'manifest.webmanifest').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8', newline='\n')
 
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
-    name = f'ErabuSawaru-v{VERSION}.swiftpm'
+    name = f'ErabuSawaru3-v{VERSION}.swiftpm'
     pkg = build / name
     if pkg.exists():
         shutil.rmtree(pkg)
@@ -79,7 +79,7 @@ def main():
     for extra in ('LICENSE.txt', 'ASSET_NOTES.md'):
         shutil.copyfile(ROOT / extra, pkg / extra)
 
-    archive = build / f'ErabuSawaru-playground-v{VERSION}.zip'
+    archive = build / f'ErabuSawaru3-playground-v{VERSION}.zip'
     if archive.exists():
         archive.unlink()
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:

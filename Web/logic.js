@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// えらぶの窓 さわる2択：画面に依存しない決まり（セットの形・読み込み・左右の判定）。
+// えらぶの窓 さわる2・3択：画面に依存しない決まり（セットの形・読み込み・触れた位置の判定）。
+// 0.2.0：質問ごとに2択（左・右）か3択（左・真ん中・右）を選べる。
 // Node のテストとページの両方から読む。
 (function (root) {
   'use strict';
@@ -37,24 +38,30 @@
     // GIF：動きを残すため縮めずにそのまま保存するので、上限を別に持つ。
     if (image && image.kind === 'photo' && typeof image.data === 'string' && image.data.length <= LIMITS.gifChars &&
         /^data:image\/gif;base64,R0lGOD[A-Za-z0-9+/]+=*$/.test(image.data)) return {kind: 'photo', data: image.data};
-    throw fail('左右それぞれに、見本の絵か写真を設定してください。');
+    throw fail('それぞれの選択肢に、見本の絵か写真を設定してください。');
   }
-  const SIDE_NAME = ['左', '右'];
-  function normalizeOption(raw, index, fresh, id) {
-    if (!raw || typeof raw !== 'object') throw fail(`${SIDE_NAME[index]}の選択肢を確認してください。`);
+  // 選べる数は2つか3つ。並びは画面の左から。
+  const CHOICE_COUNTS = [2, 3];
+  const SLOT_NAMES = {2: ['左', '右'], 3: ['左', '真ん中', '右']};
+  const slotName = (count, index) => (SLOT_NAMES[count] || SLOT_NAMES[2])[index] || `${index + 1}つ目`;
+  function normalizeOption(raw, index, fresh, id, count) {
+    const name = slotName(count, index);
+    if (!raw || typeof raw !== 'object') throw fail(`${name}の選択肢を確認してください。`);
     return {
       id: cleanId(raw.id, fresh, id),
-      label: clean(raw.label, LIMITS.label, `${SIDE_NAME[index]}の言葉`, `label-${index}`),
+      label: clean(raw.label, LIMITS.label, `${name}の言葉`, `label-${index}`),
       speech: typeof raw.speech === 'string' ? Array.from(raw.speech.trim()).slice(0, LIMITS.speech).join('') : '',
       image: validImage(raw.image)
     };
   }
-  // このアプリは左右の2択だけ。2つでない質問は呼び出し側で読み飛ばす。
+  const usableQuestion = q => !!q && Array.isArray(q.options) && CHOICE_COUNTS.includes(q.options.length);
+  // 2択か3択だけ。4択などは呼び出し側で読み飛ばす。
   function normalizeQuestion(raw, {freshIds = false, id = makeId} = {}) {
-    if (!raw || !Array.isArray(raw.options) || raw.options.length !== 2) throw fail('選択肢は2つ（左と右）にしてください。');
+    if (!usableQuestion(raw)) throw fail('選択肢は2つ（左・右）か3つ（左・真ん中・右）にしてください。');
+    const count = raw.options.length;
     const q = {id: cleanId(raw.id, freshIds, id), question: clean(raw.question, LIMITS.question, '問いかけ', 'question'),
-      options: raw.options.map((o, i) => normalizeOption(o, i, freshIds, id))};
-    if (q.options[0].id === q.options[1].id) throw fail('選択肢のIDが重複しています。');
+      options: raw.options.map((o, i) => normalizeOption(o, i, freshIds, id, count))};
+    if (new Set(q.options.map(o => o.id)).size !== count) throw fail('選択肢のIDが重複しています。');
     return q;
   }
   function rawQuestions(raw) {
@@ -95,7 +102,7 @@
     if (utf8Bytes(text) > LIMITS.fileBytes) throw fail('セットのファイルが50MBを超えています。写真を減らすか、セットを分けてください。');
     return text;
   }
-  // 元のアプリのファイル（3択・4択を含む）も読む。2択でない質問は読み飛ばし、数を返す。
+  // 元のアプリのファイル（4択を含む）も読む。2択・3択でない質問は読み飛ばし、数を返す。
   function importSets(text, id = makeId) {
     if (utf8Bytes(text) > LIMITS.fileBytes) throw fail('セットのファイルは50MB以下にしてください。');
     let input;
@@ -109,21 +116,28 @@
       if (!raw || typeof raw !== 'object') { skippedSets++; continue; }
       const questions = rawQuestions(raw);
       if (!Array.isArray(questions)) { skippedSets++; continue; }
-      const two = questions.filter(q => q && Array.isArray(q.options) && q.options.length === 2);
-      skippedQuestions += questions.length - two.length;
-      if (!two.length) { skippedSets++; continue; }
-      sets.push(normalizeSet({id: 'import', name: raw.name, questions: two.map(q => ({...q, id: 'import'}))}, {freshIds: true, id}));
+      const usable = questions.filter(usableQuestion);
+      skippedQuestions += questions.length - usable.length;
+      if (!usable.length) { skippedSets++; continue; }
+      sets.push(normalizeSet({id: 'import', name: raw.name, questions: usable.map(q => ({...q, id: 'import'}))}, {freshIds: true, id}));
     }
     return {sets, skippedQuestions, skippedSets};
   }
 
-  // 触れた位置から左右を決める。真ん中の反応しない幅の中なら null。
-  function sideAt(x, width, deadZone = 'none') {
-    if (!Number.isFinite(x) || !(width > 0)) return null;
-    const half = (DEAD_ZONES[deadZone] || 0) * width / 2, mid = width / 2;
-    if (Math.abs(x - mid) < half) return null;
-    return x < mid ? 'left' : 'right';
+  // 触れた位置から、何番目（左から0）の区切りかを決める。区切りの境目の、反応しない幅の中なら null。
+  // 区切りの外（左右の余白）に触れたときは、端の区切りとする。
+  function slotAt(x, width, count = 2, deadZone = 'none') {
+    if (!Number.isFinite(x) || !(width > 0) || !CHOICE_COUNTS.includes(count)) return null;
+    const half = (DEAD_ZONES[deadZone] || 0) * width / 2;
+    for (let k = 1; k < count; k++) if (Math.abs(x - width * k / count) < half) return null;
+    return Math.max(0, Math.min(count - 1, Math.floor(x / width * count)));
   }
+  // 2択の左右（前の版の呼び方）。
+  function sideAt(x, width, deadZone = 'none') {
+    const slot = slotAt(x, width, 2, deadZone);
+    return slot === null ? null : (slot === 0 ? 'left' : 'right');
+  }
+  const slotIndex = slot => (slot === 'left' ? 0 : slot === 'right' ? -1 : slot);
 
   // 1つの質問の状態。選んだら「えらびなおす」まで保つ。次の質問へは自動で進まない。
   class ChoiceSession {
@@ -137,16 +151,19 @@
     get question() { return this.set.questions[this.index]; }
     get count() { return this.set.questions.length; }
     start() { this.order = this.question.options.map(o => o.id); this.selected = null; }
-    // side: 'left' | 'right'。選べたら選択肢を返す。選択中は null。
-    choose(side) {
-      if (this.selected || (side !== 'left' && side !== 'right')) return null;
-      const id = this.order[side === 'left' ? 0 : 1];
-      this.selected = id;
-      return this.question.options.find(o => o.id === id);
+    get size() { return this.order.length; }
+    // 左から何番目か（数）。'left'（一番左）・'right'（一番右）でもよい。選べたら選択肢を返す。選択中は null。
+    slot(value) { const i = slotIndex(value); if (!Number.isInteger(i)) return null; const n = i < 0 ? this.size + i : i; return n >= 0 && n < this.size ? n : null; }
+    choose(value) {
+      const i = this.slot(value);
+      if (this.selected || i === null) return null;
+      this.selected = this.order[i];
+      return this.question.options.find(o => o.id === this.selected);
     }
     get chosen() { return this.selected ? this.question.options.find(o => o.id === this.selected) : null; }
-    get chosenSide() { return this.selected ? (this.order[0] === this.selected ? 'left' : 'right') : null; }
-    optionAt(side) { const id = this.order[side === 'left' ? 0 : 1]; return this.question.options.find(o => o.id === id); }
+    get chosenSlot() { return this.selected ? this.order.indexOf(this.selected) : null; }
+    get chosenSide() { const i = this.chosenSlot; return i === null ? null : i === 0 ? 'left' : i === this.size - 1 ? 'right' : 'middle'; }
+    optionAt(value) { const i = this.slot(value); return i === null ? null : this.question.options.find(o => o.id === this.order[i]); }
     reset() { this.selected = null; }
     swap() { this.order.reverse(); this.selected = null; }
     go(step) {
@@ -170,7 +187,7 @@
     return p;
   }
 
-  const api = {ASSETS, LIMITS, DEAD_ZONES, DEFAULT_PREFS, makeId, validImage, normalizeQuestion, normalizeSet, starterSets,
-    exportSet, importSets, sideAt, ChoiceSession, sanitizePrefs};
+  const api = {ASSETS, LIMITS, DEAD_ZONES, DEFAULT_PREFS, CHOICE_COUNTS, SLOT_NAMES, slotName, makeId, validImage, normalizeQuestion, normalizeSet, starterSets,
+    exportSet, importSets, slotAt, sideAt, ChoiceSession, sanitizePrefs};
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.SawaruLogic = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -4,13 +4,13 @@ import PackageDescription
 import AppleProductTypes
 
 let package = Package(
-    name: "ErabuSawaru",
+    name: "ErabuSawaru3",
     platforms: [.iOS("16.4")],
     products: [
         .iOSApplication(
-            name: "えらぶの窓 さわる2択",
+            name: "えらぶの窓 さわる2・3択",
             targets: ["AppModule"],
-            bundleIdentifier: "org.erabuwindow.ipad.sawaru2",
+            bundleIdentifier: "org.erabuwindow.ipad.sawaru3",
             displayVersion: "@VERSION@",
             bundleVersion: "@BUILD@",
             appIcon: .placeholder(icon: .star),
